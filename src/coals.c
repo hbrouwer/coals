@@ -114,6 +114,10 @@ void populate_enf_word_hash(struct config *cfg, struct freqs **fqs,
                 struct enf_words **ewds);
 void dispose_enf_word_hash(struct enf_words **ewds);
 
+DMat construct_cm(struct config *cfg, struct freqs **fqs,
+                struct enf_words **ewds);
+void convert_freqs_to_correlations(DMat *dcm);
+
 /*
  * ########################################################################
  * ## Main functions                                                     ##
@@ -350,9 +354,17 @@ void coals(struct config *cfg)
                 fprintf(stderr, "\twords read:\t\t\t[%d]\n", HASH_COUNT(ewds));
         }
 
+        /*
+         * Construct a co-occurrence matrix on basis of
+         * the co-occurrence frequency hashes.
+         */
+        printf("--- constructing a co-occurrence matrix (...)\n");
+        DMat dcm = construct_cm(cfg, &fqs, &ewds);
+        fprintf(stderr, "\tbuilt [%ldx%ld] matrix\n", dcm->rows, dcm->cols);
 
         /* clean up */
         fprintf(stderr, "--- cleaning up (...)\n");
+        dispose_enf_word_hash(&ewds);
         dispose_freq_hash(&fqs);
 }
 
@@ -678,8 +690,7 @@ void populate_enf_word_hash(struct config *cfg, struct freqs **fqs,
          * Delete words that occur in the top-k frequencies;
          * We do not want the same word to occur twice.
          */
-        struct freqs *f; 
-        int r = 0;
+        int r; struct freqs *f; 
         for (r = 0, f = *fqs; r < cfg->rows && f != NULL; r++, f = f->hh.next) {
                 struct enf_words *ew;
                 HASH_FIND_STR(*ewds, f->word, ew);
@@ -708,4 +719,56 @@ void dispose_enf_word_hash(struct enf_words **ewds)
                 HASH_DEL(*ewds, ew);
                 free(ew);
         }
+}
+
+/*
+ * Construct a co-occurrence matrix.
+ */
+
+DMat construct_cm(struct config *cfg, struct freqs **fqs,
+                struct enf_words **ewds)
+{
+        int extra_rows = HASH_COUNT(*ewds);
+        DMat dcm = svdNewDMat(cfg->rows + extra_rows, cfg->cols);
+
+        /* enter co-occurrence frequencies for the top-k words */
+        int r; struct freqs *rf;
+        for (r = 0, rf = *fqs; r < (dcm->rows - extra_rows) && rf != NULL; r++, rf = rf->hh.next) {
+                int c; struct freqs *cf;
+                for (c = 0, cf = *fqs; c < dcm->cols && cf != NULL; c++, cf = cf->hh.next) {
+                        /*
+                         * If there is a co-occurence frequency for the
+                         * current word pair, enter its value into the
+                         * matrix. Otherwise, enter zero.
+                         */
+                        struct freqs *f;
+                        HASH_FIND_STR(rf->cfqs, cf->word, f);
+                        if (f)
+                                dcm->value[r][c] = f->freq;
+                        else
+                                dcm->value[r][c] = 0.0;
+                }
+        }
+
+        /* enter co-occurrence frequencies for enforced words */
+        struct enf_words *ew;
+        for (r = (dcm->rows - extra_rows), ew = *ewds; r < dcm->rows && ew != NULL; r++, ew = ew->hh.next) {
+                int c; struct freqs *cf;
+                for (c = 0, cf = *fqs; c < dcm->cols && cf != NULL; c++, cf = cf->hh.next) {
+                        /*
+                         * If there is a co-occurence frequency for the
+                         * current word pair, enter its value into the
+                         * matrix. Otherwise, enter zero.
+                         */
+                        HASH_FIND_STR(*fqs, ew->word, rf);
+                        struct freqs *f;
+                        HASH_FIND_STR(rf->cfqs, cf->word, f);
+                        if (f)
+                                dcm->value[r][c] = f->freq;
+                        else
+                                dcm->value[r][c] = 0.0;
+                }
+        }
+
+        return dcm;
 }
