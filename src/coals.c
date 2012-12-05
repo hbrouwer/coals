@@ -116,7 +116,8 @@ void dispose_enf_word_hash(struct enf_words **ewds);
 
 DMat construct_cm(struct config *cfg, struct freqs **fqs,
                 struct enf_words **ewds);
-void convert_freqs_to_correlations(DMat *dcm);
+void convert_freqs_to_correlations(DMat dcm);
+double pearson_correlation(double val, double rt, double ct, double t);
 
 /*
  * ########################################################################
@@ -358,9 +359,25 @@ void coals(struct config *cfg)
          * Construct a co-occurrence matrix on basis of
          * the co-occurrence frequency hashes.
          */
-        printf("--- constructing a co-occurrence matrix (...)\n");
+        fprintf(stderr, "--- constructing a co-occurrence matrix (...)\n");
         DMat dcm = construct_cm(cfg, &fqs, &ewds);
-        fprintf(stderr, "\tbuilt [%ldx%ld] matrix\n", dcm->rows, dcm->cols);
+        fprintf(stderr, "\tbuilt a [%ldx%ld] matrix\n", dcm->rows, dcm->cols);
+
+        /*
+         * Convert frequencies to correlations.
+         */
+        fprintf(stderr, "--- converting frequencies to correlation coefficients (...)\n");
+        convert_freqs_to_correlations(dcm);
+
+        /*
+         * Reduce dimensionality (with SVD; if required).
+         */
+        SMat scm = NULL; SVDRec svdrec = NULL;
+        if (cfg->dims > 0) {
+                fprintf(stderr, "--- reducing dimensionality with singular value decomposition (...)\n");
+                scm = svdConvertDtoS(dcm);
+                svdrec = svdLAS2A(scm, cfg->dims);
+        }
 
         /* clean up */
         fprintf(stderr, "--- cleaning up (...)\n");
@@ -771,4 +788,71 @@ DMat construct_cm(struct config *cfg, struct freqs **fqs,
         }
 
         return dcm;
+}
+
+/*
+ * Convert raw frequencies to correlation coefficients. Negative
+ * correlations are set to zero, and positive correlations are magnified
+ * by taking their square root.
+ */
+
+void convert_freqs_to_correlations(DMat dcm)
+{
+        DMat rts = svdNewDMat(dcm->rows, 1);
+        DMat cts = svdNewDMat(1, dcm->cols);
+        double t;
+
+        /* determine row, column, and grand total */
+        for (int r = 0; r < dcm->rows; r++) {
+                for (int c = 0; c < dcm->cols; c++) {
+                        rts->value[r][0] += dcm->value[r][c];
+                        cts->value[0][c] += dcm->value[r][c];
+                        t += dcm->value[r][c];
+                }
+        }
+
+        /*
+         * Replace frequencies with correlations. If
+         * a correlation is negative, set its corresponding
+         * cell to zero. If it is positive, by contrast,
+         * take its square root to magnify it.
+         */
+        for (int r = 0; r < dcm->rows; r++) {
+                for (int c = 0; c < dcm->cols; c++) {
+                        double pc = pearson_correlation(dcm->value[r][c],
+                                        rts->value[r][0], cts->value[0][c], t);
+                        if (pc < 0)
+                                dcm->value[r][c] = 0.0;
+                        else
+                                dcm->value[r][c] = sqrt(pc);
+                }
+        }
+
+        svdFreeDMat(rts);
+        svdFreeDMat(cts);
+}
+
+/*
+ * Pearson's correlation coefficient:
+ *
+ *           T * w_a,b - sum_j w_a,j * sum_i w_i,b
+ * pc_a,b = ---------------------------------------
+ *          (sum_j w_a,j * (T - sum_j w_a,j) * 
+ *           sum_i w_i,b * (T - sum_i w_i,b)) ^ 0.5
+ *
+ * where: 
+ *  
+ * T = sum_i sum_j w_i,j
+ */
+
+double pearson_correlation(double val, double rt, double ct, double t)
+{
+        double nom = t * val - rt * ct;
+        double denom = pow(rt * (t - rt) * ct * (t - ct), 0.5);
+
+        if (denom == 0.0) {
+                return 0.0;
+        } else {
+                return nom / denom;
+        }
 }
