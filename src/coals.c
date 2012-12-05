@@ -66,6 +66,7 @@ struct config
         char *unigrams_fn;      /* unigrams file name */
         char *ngrams_fn;        /* ngrams file name */
         char *output_fn;        /* output file name */
+        char *include_fn;       /* file name of words to include */
 
 };
 
@@ -97,18 +98,17 @@ struct words
  * ########################################################################
  */
 
-void cprintf(const char *fmt, ...);
-void mprintf(const char *fmt, ...);
-
 bool config_is_sane(struct config *cfg);
 void print_help(char *exec_name);
 void print_version();
 
 void coals(struct config *cfg);
 
-void populate_freq_hash(char *fn, struct freqs **fqs);
-
+void populate_freq_hash(struct config *cfg, struct freqs **fqs);
+void populate_cfreq_hashes(struct config *cfg, struct freqs **fqs);
 void dispose_freq_hash(struct freqs **fqs);
+
+bool is_word(char *word);
 
 int sort_by_freq(struct freqs *a, struct freqs *b);
 
@@ -120,12 +120,12 @@ int sort_by_freq(struct freqs *a, struct freqs *b);
 
 int main(int argc, char **argv)
 {
-        cprintf("");
-        cprintf("COALS version %s", VERSION);
-        cprintf("Copyright (c) 2013 Harm Brouwer <me@hbrouwer.eu>");
-        cprintf("Center for Language and Cognition, University of Groningen");
-        cprintf("Netherlands Organisation for Scientific Research (NWO)");
-        cprintf("");
+        printf("\n");
+        printf("COALS version %s\n", VERSION);
+        printf("Copyright (c) 2013 Harm Brouwer <me@hbrouwer.eu>\n");
+        printf("Center for Language and Cognition, University of Groningen\n");
+        printf("Netherlands Organisation for Scientific Research (NWO)\n");
+        printf("\n");
 
         struct config *cfg;
         if (!(cfg = malloc(sizeof(struct config))))
@@ -196,6 +196,12 @@ int main(int argc, char **argv)
                                 cfg->output_fn = argv[i];
                 }
 
+                /* output */
+                if (strcmp(argv[i], "--include") == 0) {
+                        if (++i < argc)
+                                cfg->include_fn = argv[i];
+                }
+
                 /* help */
                 if (strcmp(argv[i], "--help") == 0) {
                         print_help(argv[0]);
@@ -221,27 +227,6 @@ int main(int argc, char **argv)
 error_out:
         perror("[main()]");
         exit(EXIT_FAILURE);
-}
-
-void cprintf(const char *fmt, ...)
-{
-        va_list args;
-
-        va_start(args, fmt);
-        vfprintf(stderr, fmt, args);
-        va_end(args);
-        fprintf(stderr, "\n");
-}
-
-void mprintf(const char *fmt, ...)
-{
-        va_list args;
-
-        fprintf(stderr, "--- ");
-        va_start(args, fmt);
-        vfprintf(stderr, fmt, args);
-        va_end(args);
-        fprintf(stderr, "\n");
 }
 
 /*
@@ -272,7 +257,7 @@ bool config_is_sane(struct config *cfg)
 
 void print_help(char *exec_name)
 {
-        cprintf(
+        printf(
                         "usage %s [options]\n\n"
 
                         "  constructing COALS vectors:\n"
@@ -285,6 +270,7 @@ void print_help(char *exec_name)
                         "    --unigrams <file>\tread unigram counts (word frequencies) from <file>\n"
                         "    --ngrams <file>\tread n-gram counts (co-occurrence freqs.) from <file>\n"
                         "    --output <file>\twrite COALS vectors to <file>\n"
+                        "    --include <file>\tenforce inclusion of words in <file>\n"
 
                         "\n"
                         "  basic information for users:\n"
@@ -296,7 +282,7 @@ void print_help(char *exec_name)
 
 void print_version()
 {
-        cprintf("%s\n", VERSION);
+        printf("%s\n", VERSION);
 }
 
 /*
@@ -305,7 +291,7 @@ void print_version()
 
 void coals(struct config *cfg)
 {
-        mprintf("starting construction of COALS vectors:");
+        fprintf(stderr, "--- starting construction of COALS vectors\n");
 
         fprintf(stderr, "\tco-occurrence window size:\t[%d]\n", cfg->w_size);
         fprintf(stderr, "\tco-occurrence window type:\t");
@@ -327,14 +313,27 @@ void coals(struct config *cfg)
         fprintf(stderr, "\tunigrams file:\t\t\t[%s]\n", cfg->unigrams_fn);
         fprintf(stderr, "\tngrams file:\t\t\t[%s]\n", cfg->ngrams_fn);
         fprintf(stderr, "\toutput file:\t\t\t[%s]\n", cfg->output_fn);
+        if (cfg->include_fn)
+                fprintf(stderr, "\tinclude words from file:\t[%s]\n",
+                                cfg->include_fn);
 
         /*
          * Populate frequency hash.
          */
         struct freqs *fqs = NULL;
-        mprintf("populating frequency hash from: [%s] (...)", cfg->unigrams_fn);
-        populate_freq_hash(cfg->unigrams_fn, &fqs);
+        fprintf(stderr, "--- populating frequency hash from: [%s] (...)\n",
+                        cfg->unigrams_fn);
+        populate_freq_hash(cfg, &fqs);
+        fprintf(stderr, "\twords read:\t\t\t[%d]\n", HASH_COUNT(fqs));
 
+        /*
+         * Populate co-occurrence frequency hashes.
+         */
+        fprintf(stderr, "--- populating co-occurrence frequency hashes from: [%s] (...)\n",
+                        cfg->ngrams_fn);
+        populate_cfreq_hashes(cfg, &fqs);
+
+        /* clean up */
         dispose_freq_hash(&fqs);
 }
 
@@ -347,19 +346,69 @@ void coals(struct config *cfg)
  * 1|<word_2>|<frequency>
  * .|........|...........
  *
- * where the first integegers denotes that the frequency is
- * is unigram count.
+ * where the first integer denotes that the frequency is
+ * a unigram count.
  */
 
-void populate_freq_hash(char *fn, struct freqs **fqs)
+void populate_freq_hash(struct config *cfg, struct freqs **fqs)
 {
         FILE *fd;
-        if (!(fd = fopen(fn, "r")))
+        if (!(fd = fopen(cfg->unigrams_fn, "r")))
                 goto error_out;
 
         /* read all unigrams */
         char buf[1024];
         while (fgets(buf, sizeof(buf), fd)) {
+                char *wp = index(buf, '|');
+                char *fp = rindex(buf, '|');
+
+                /* isolate word */
+                char *word;
+                int len = fp - ++wp;
+                int block_size = (len + 1) * sizeof(char);
+                if (!(word = malloc(block_size)))
+                        goto error_out;
+                memset(word, 0, block_size);
+                strncpy(word, wp, len);
+
+                /* isolate word frequency */
+                int freq = atoi(++fp);
+
+                /* convert word to uppercase */
+                for (int i = 0; i < strlen(word); i++)
+                        word[i] = toupper(word[i]);
+
+                /* skip if not a word */
+                if (!is_word(word)) {
+                        free(word);
+                        continue;
+                }
+
+                /* 
+                 * Add word to frequency hash. There are two options:
+                 *
+                 * 1) We are dealing with a new word, so we add a new
+                 *    hash entry.
+                 *
+                 * 2) We have already seen this word, and we simply 
+                 *    update its frequency.
+                 */ 
+                struct freqs *f;
+                HASH_FIND_STR(*fqs, word, f);
+                /* option 1 */
+                if (!f) {
+                        struct freqs *nf;
+                        if (!(nf = malloc(sizeof(struct freqs))))
+                                goto error_out;
+                        memset(nf, 0, sizeof(struct freqs));
+                        nf->word = word;
+                        nf->freq = freq;
+                        HASH_ADD_KEYPTR(hh, *fqs, nf->word, strlen(nf->word), nf);
+                /* option 2 */
+                } else {
+                        f->freq += freq;
+                        free(word);
+                }
         }
 
         fclose(fd);
@@ -371,6 +420,140 @@ void populate_freq_hash(char *fn, struct freqs **fqs)
 
 error_out:
         perror("[populate_freq_hash()]");
+        return;
+}
+
+/*
+ * Populate co-occurrence frequency hashes on basis of n-gram counts.
+ *
+ * This function assumes the following file format:
+ *
+ * n|<word_1>|<frequency>
+ * n|<word_2>|<frequency>
+ * .|........|...........
+ *
+ * where the first integer denotes that the frequency is
+ * a n-gram count for n-grams of size n.
+ */
+
+void populate_cfreq_hashes(struct config *cfg, struct freqs **fqs)
+{
+        FILE *fd;
+        if (!(fd = fopen(cfg->ngrams_fn, "r")))
+                goto error_out;
+
+        /* n-gram size and word index */
+        int ngram_sz = cfg->w_size * 2 + 1;
+        int word_idx = cfg->w_size;
+
+        /* read all n-grams */
+        char buf[1024];
+        while (fgets(buf, sizeof(buf), fd)) {
+                char *wp = index(buf, '|');
+                char *fp = rindex(buf, '|');
+
+                /* isolate n-gram */
+                char *ngram;
+                int len = fp - ++wp;
+                int block_size = (len + 1) * sizeof(char);
+                if (!(ngram = malloc(block_size)))
+                        goto error_out;
+                memset(ngram, 0, block_size);
+                strncpy(ngram, wp, len);
+
+                /* isolate n-gram frequency */
+                int freq = atoi(++fp);
+
+                /* convert n-gram to uppercase */
+                for (int i = 0; i < strlen(ngram); i++)
+                        ngram[i] = toupper(ngram[i]);
+
+                /* isolate individual words */
+                char *words[ngram_sz];
+                words[0] = strtok(ngram, " ");
+                for (int i = 1; i < ngram_sz; i++)
+                        words[i] = strtok(NULL, " ");
+
+                /* skip if string in focus is not a word */
+                if (!is_word(words[word_idx])) {
+                        free(ngram);
+                        continue;
+                }
+
+                /* 
+                 * skip if there is no frequency for 
+                 * word in focus
+                 */
+                struct freqs *f;
+                HASH_FIND_STR(*fqs, words[word_idx], f);
+                if (!f) {
+                        free(ngram);
+                        continue;
+                }
+
+                /* 
+                 * add co-occurence frequencies for all words
+                 * to the left and right of the focused word
+                 */
+                for (int i = 0; i < ngram_sz; i++) {
+                        /* skip word in focus */
+                        if (i == word_idx)
+                                continue;
+
+                        /* skip if not a word */
+                        if (!is_word(words[i]))
+                                continue;
+
+                        /* frequency */
+                        int rfreq = freq;
+
+                        /* ramp frequency (if required) */
+                        if (cfg->w_type == WTYPE_RAMPED) {
+                                if (i < word_idx)
+                                        rfreq *= i + 1;
+                                if (i > word_idx)
+                                        rfreq *= ngram_sz - i;
+                        }
+
+                        /* 
+                         * Add word to co-occurrence frequency hash.
+                         * There are two options:
+                         *
+                         * 1) We are dealing with a new word, so we add
+                         *    a new hash entry.
+                         *
+                         * 2) We have already seen this word, and we
+                         *    simply update its co-occurrence frequency.
+                         */
+                        struct freqs *cf;
+                        HASH_FIND_STR(f->cfqs, words[i], cf);
+                        /* option 1 */
+                        if (!cf) {
+                                struct freqs *nf;
+                                if (!(nf = malloc(sizeof(struct freqs))))
+                                        goto error_out;
+                                memset(nf, 0, sizeof(struct freqs));
+                                block_size = (strlen(words[i]) + 1) * sizeof(char);
+                                if (!(nf->word = malloc(block_size)))
+                                        goto error_out;
+                                memset(nf->word, 0, block_size);
+                                strncpy(nf->word, words[i], strlen(words[i]));
+                                nf->freq = rfreq;
+                                HASH_ADD_KEYPTR(hh, f->cfqs, nf->word, strlen(nf->word), nf);
+                        /* option 2 */
+                        } else {
+                                cf->freq += rfreq;
+                        }
+                }
+                free(ngram);
+        }
+
+        fclose(fd);
+
+        return;
+
+error_out:
+        perror("[populate_cfreq_hashes()]");
         return;
 }
 
@@ -388,6 +571,32 @@ void dispose_freq_hash(struct freqs **fqs)
                 HASH_DEL(*fqs, f);
                 free(f);
         }
+}
+
+/*
+ * Checks whether a string is a word.
+ */
+
+bool is_word(char *word)
+{
+        /*
+         * String is a non-word is it contains
+         * punctuation characthers other than a
+         * dash.
+         */
+        for (int i = 0; i < strlen(word); i++)
+                if (!isalpha(word[i]) && word[i] != '-')
+                        return false;
+
+        /*
+         * String is a non-word if its only
+         * character is a punctuation character.
+         */
+        if (strlen(word) == 1)
+                if (ispunct(word[0]))
+                        return false;
+
+        return true;
 }
 
 /*
