@@ -151,9 +151,9 @@ int main(int argc, char **argv)
                 if (strcmp(argv[i], "--wtype") == 0) {
                         if (++i < argc) {
                                 if (strcmp(argv[i], "ramped") == 0)
-                                        cfg->v_type = WTYPE_RAMPED;
+                                        cfg->w_type = WTYPE_RAMPED;
                                 if (strcmp(argv[i], "flat") == 0)
-                                        cfg->v_type = WTYPE_FLAT;
+                                        cfg->w_type = WTYPE_FLAT;
                         }
                 }
 
@@ -302,9 +302,9 @@ void coals(struct config *cfg)
 
         fprintf(stderr, "\tco-occurrence window size:\t[%d]\n", cfg->w_size);
         fprintf(stderr, "\tco-occurrence window type:\t");
-        if (cfg->v_type == WTYPE_RAMPED)
+        if (cfg->w_type == WTYPE_RAMPED)
                 printf("[ramped]\n");
-        if (cfg->v_type == WTYPE_FLAT)
+        if (cfg->w_type == WTYPE_FLAT)
                 printf("[flat]\n");
 
         fprintf(stderr, "\tco-occurrence matrix rows:\t[%d]\n", cfg->rows);
