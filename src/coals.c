@@ -66,7 +66,7 @@ struct config
         char *unigrams_fn;      /* unigrams file name */
         char *ngrams_fn;        /* ngrams file name */
         char *output_fn;        /* output file name */
-        char *include_fn;       /* file name of words to include */
+        char *enf_wds_fn;       /* enforced words file name */
 
 };
 
@@ -83,10 +83,10 @@ struct freqs
 };
 
 /*
- * Hash table of words for which to ensure inclusion.
+ * Hash table of words for which to enforce inclusion.
  */
 
-struct words
+struct enf_words
 {
         char *word;             /* word string (hash-key) */
         UT_hash_handle hh;      /* hash handle */
@@ -107,10 +107,12 @@ void coals(struct config *cfg);
 void populate_freq_hash(struct config *cfg, struct freqs **fqs);
 void populate_cfreq_hashes(struct config *cfg, struct freqs **fqs);
 void dispose_freq_hash(struct freqs **fqs);
-
 bool is_word(char *word);
-
 int sort_by_freq(struct freqs *a, struct freqs *b);
+
+void populate_enf_word_hash(struct config *cfg, struct freqs **fqs,
+                struct enf_words **ewds);
+void dispose_enf_word_hash(struct enf_words **ewds);
 
 /*
  * ########################################################################
@@ -197,9 +199,9 @@ int main(int argc, char **argv)
                 }
 
                 /* output */
-                if (strcmp(argv[i], "--include") == 0) {
+                if (strcmp(argv[i], "--enforce") == 0) {
                         if (++i < argc)
-                                cfg->include_fn = argv[i];
+                                cfg->enf_wds_fn = argv[i];
                 }
 
                 /* help */
@@ -270,7 +272,7 @@ void print_help(char *exec_name)
                         "    --unigrams <file>\tread unigram counts (word frequencies) from <file>\n"
                         "    --ngrams <file>\tread n-gram counts (co-occurrence freqs.) from <file>\n"
                         "    --output <file>\twrite COALS vectors to <file>\n"
-                        "    --include <file>\tenforce inclusion of words in <file>\n"
+                        "    --enfore <file>\tenforce inclusion of words in <file>\n"
 
                         "\n"
                         "  basic information for users:\n"
@@ -313,9 +315,9 @@ void coals(struct config *cfg)
         fprintf(stderr, "\tunigrams file:\t\t\t[%s]\n", cfg->unigrams_fn);
         fprintf(stderr, "\tngrams file:\t\t\t[%s]\n", cfg->ngrams_fn);
         fprintf(stderr, "\toutput file:\t\t\t[%s]\n", cfg->output_fn);
-        if (cfg->include_fn)
+        if (cfg->enf_wds_fn)
                 fprintf(stderr, "\tinclude words from file:\t[%s]\n",
-                                cfg->include_fn);
+                                cfg->enf_wds_fn);
 
         /*
          * Populate frequency hash.
@@ -333,7 +335,24 @@ void coals(struct config *cfg)
                         cfg->ngrams_fn);
         populate_cfreq_hashes(cfg, &fqs);
 
+        /*
+         * Populate hash of words that should be included
+         * in the co-occurrence matrix, even though they do
+         * not occur in the top-k most frequent words (only
+         * if required).
+         */
+        struct enf_words *ewds = NULL;
+        if (cfg->enf_wds_fn) {
+
+                fprintf(stderr, "--- populating enforced word hash from: [%s] (...)\n",
+                        cfg->enf_wds_fn);
+                populate_enf_word_hash(cfg, &fqs, &ewds);
+                fprintf(stderr, "\twords read:\t\t\t[%d]\n", HASH_COUNT(ewds));
+        }
+
+
         /* clean up */
+        fprintf(stderr, "--- cleaning up (...)\n");
         dispose_freq_hash(&fqs);
 }
 
@@ -606,4 +625,87 @@ bool is_word(char *word)
 int sort_by_freq(struct freqs *a, struct freqs *b)
 {
         return b->freq - a->freq;
+}
+
+/*
+ * Populate hash of enforced words.
+ *
+ * This function assumes the following file format:
+ *
+ * <word_1>
+ * <word_2>
+ * ........
+ */
+
+void populate_enf_word_hash(struct config *cfg, struct freqs **fqs,
+                struct enf_words **ewds)
+{
+        FILE *fd;
+        if (!(fd = fopen(cfg->enf_wds_fn, "r")))
+                goto error_out;
+
+        /* read all words */
+        char buf[1024];
+        while (fgets(buf, sizeof(buf), fd)) {
+                /* copy word */
+                char *word;
+                int block_size = strlen(buf) * sizeof(char);
+                if (!(word = malloc(block_size)))
+                        goto error_out;
+                memset(word, 0, block_size);
+                strncpy(word, buf, strlen(buf) - 1); 
+                
+                /*
+                 * We only want to add a word if it occurs in the corpus.
+                 * This is the case if we have its frequency.
+                 */
+                struct freqs *f;
+                HASH_FIND_STR(*fqs, word, f);
+                if (f) {
+                        struct enf_words *ew;
+                        if (!(ew = malloc(sizeof(struct enf_words))))
+                                goto error_out;
+                        memset(ew, 0, sizeof(struct enf_words));
+                        ew->word = word;
+                        HASH_ADD_KEYPTR(hh, *ewds, ew->word, strlen(ew->word), ew);
+                } else {
+                        fprintf(stderr, "\tno frequency for word:\t\t(%s)\n", word);
+                        free(word);
+                }
+        }
+
+        /* 
+         * Delete words that occur in the top-k frequencies;
+         * We do not want the same word to occur twice.
+         */
+        struct freqs *f; 
+        int r = 0;
+        for (r = 0, f = *fqs; r < cfg->rows && f != NULL; r++, f = f->hh.next) {
+                struct enf_words *ew;
+                HASH_FIND_STR(*ewds, f->word, ew);
+                if (ew) {
+                        HASH_DEL(*ewds, ew);
+                }
+        }
+
+        fclose(fd);
+
+        return;
+
+error_out:
+        perror("[populate_enf_word_hash()]");
+        return;
+}
+
+/*
+ * Dispose enforced words hash.
+ */
+
+void dispose_enf_word_hash(struct enf_words **ewds)
+{
+        struct enf_words *ew, *new;
+        HASH_ITER(hh, *ewds, ew, new) {
+                HASH_DEL(*ewds, ew);
+                free(ew);
+        }
 }
