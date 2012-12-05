@@ -318,7 +318,7 @@ void coals(struct config *cfg)
                 printf("[binary]\n");
 
         fprintf(stderr, "\tunigrams file:\t\t\t[%s]\n", cfg->unigrams_fn);
-        fprintf(stderr, "\tngrams file:\t\t\t[%s]\n", cfg->ngrams_fn);
+        fprintf(stderr, "\tn-grams file:\t\t\t[%s]\n", cfg->ngrams_fn);
         fprintf(stderr, "\toutput file:\t\t\t[%s]\n", cfg->output_fn);
         if (cfg->enf_wds_fn)
                 fprintf(stderr, "\tinclude words from file:\t[%s]\n",
