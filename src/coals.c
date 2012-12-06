@@ -1,7 +1,7 @@
 /*
  * coals.c
  *
- * Copyright 2012 Harm Brouwer <me@hbrouwer.eu>
+ * Copyright 2013 Harm Brouwer <me@hbrouwer.eu>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -123,6 +123,12 @@ DMat generate_reduced_vectors(struct config *cfg, DMat dcm, SVDRec svdrec);
 DMat invert_singular_values(struct config *cfg, double *S_hat);
 DMat multiply_matrices(DMat m1, DMat m2);
 
+void write_vectors(struct config *cfg, struct freqs **fqs,
+                struct enf_words **ewds, DMat cvs);
+void fprint_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
+                int r);
+bool row_contains_negatives(DMat m, int r);
+
 /*
  * ########################################################################
  * ## Main functions                                                     ##
@@ -233,6 +239,8 @@ int main(int argc, char **argv)
 
         coals(cfg);
 
+        free(cfg);
+
         exit(EXIT_SUCCESS);
 
 error_out:
@@ -281,7 +289,7 @@ void print_help(char *exec_name)
                         "    --unigrams <file>\tread unigram counts (word frequencies) from <file>\n"
                         "    --ngrams <file>\tread n-gram counts (co-occurrence freqs.) from <file>\n"
                         "    --output <file>\twrite COALS vectors to <file>\n"
-                        "    --enfore <file>\tenforce inclusion of words in <file>\n"
+                        "    --enforce <file>\tenforce inclusion of words in <file>\n"
 
                         "\n"
                         "  basic information for users:\n"
@@ -417,8 +425,16 @@ void coals(struct config *cfg)
                 cvs = dcm;
         }
 
+        /*
+         * Write COALS vectors to output file.
+         */
+        fprintf(stderr, "--- writing coals vectors to: [%s] (...)\n",
+                        cfg->output_fn);
+        write_vectors(cfg, &fqs, &ewds, cvs);
+
         /* clean up */
         fprintf(stderr, "--- cleaning up (...)\n");
+        svdFreeDMat(cvs);
         dispose_enf_word_hash(&ewds);
         dispose_freq_hash(&fqs);
 }
@@ -976,7 +992,6 @@ DMat invert_singular_values(struct config *cfg, double *S_hat)
  *             [ g h ]
  * [ a b c ]   [ i j ]   [ (a * g + b * i + c * k) (a * h + b * j * c * l) ]
  * [ d e f ] x [ k l ] = [ (d * g + e * i + f * k) (d * h + e * j * f * l) ]
- *
  */
 
 DMat multiply_matrices(DMat m1, DMat m2)
@@ -989,4 +1004,90 @@ DMat multiply_matrices(DMat m1, DMat m2)
                                 m3->value[r][c] += m1->value[r][i] * m2->value[i][c];
 
         return m3;
+}
+
+/*
+ * Write COALS vectors to output file.
+ */
+
+void write_vectors(struct config *cfg, struct freqs **fqs,
+                struct enf_words **ewds, DMat cvs)
+{
+        FILE *fd;
+        if (!(fd = fopen(cfg->output_fn, "w")))
+                goto error_out;
+
+        /* determine extra rows (for enforced words) */
+        int extra_rows = HASH_COUNT(*ewds);
+
+        int num_written = 0;
+
+        /* write vectors of the top-k words */
+        int r; struct freqs *f;
+        for (r = 0, f = *fqs; r < (cvs->rows - extra_rows) && f != NULL; r++, f = f->hh.next)
+                if (!row_contains_negatives(cvs, r))
+                        fprintf(stderr, "\tmonotonic vector for:\t\t(%s)\n", f->word);
+                else {
+                        fprint_vector(fd, cfg, f->word, cvs, r);
+                        num_written++;
+                }
+
+        /* enter vectors of enforced words */
+        struct enf_words *ew;
+        for (r = (cvs->rows - extra_rows), ew = *ewds; r < cvs->rows && ew != NULL; r++, ew = ew->hh.next)
+                if (!row_contains_negatives(cvs, r))
+                        fprintf(stderr, "\tmonotonic vector for:\t\t(%s)\n", ew->word);
+                else {
+                        fprint_vector(fd, cfg, ew->word, cvs, r);
+                        num_written++;
+                }
+
+        fclose(fd);
+
+        fprintf(stderr, "\tvectors written:\t\t[%d]\n", num_written);
+
+        return;
+
+error_out:
+        perror("[write_vectors()]");
+        return;
+}
+
+/*
+ * Print a vector to a file.
+ */
+
+void fprint_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
+                int r)
+{
+        fprintf(fd, "\"%s\"", w);
+        for (int c = 0; c < cvs->cols; c++) {
+                /* real vectors */
+                if (cfg->v_type == VTYPE_REAL) {
+                        fprintf(fd, ",%f", cvs->value[r][c]);
+                }
+                /* binary vectors */
+                if (cfg->v_type == VTYPE_BINARY) {
+                        if (cvs->value[r][c] > 0) {
+                                fprintf(fd, ",1");
+                        } else {
+                                fprintf(fd, ",0");
+                        }
+                }
+        }
+
+        fprintf(fd, "\n");
+}
+
+/*
+ * Check whether a matrix row contains negative values.
+ */
+
+bool row_contains_negatives(DMat m, int r)
+{
+        for (int c = 0; c < m->cols; c++)
+                if (m->value[r][c] < 0.0)
+                        return true;
+
+        return false;
 }
