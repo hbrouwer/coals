@@ -119,6 +119,10 @@ DMat construct_cm(struct config *cfg, struct freqs **fqs,
 void convert_freqs_to_correlations(DMat dcm);
 double pearson_correlation(double val, double rt, double ct, double t);
 
+DMat generate_reduced_vectors(struct config *cfg, DMat dcm, SVDRec svdrec);
+DMat invert_singular_values(struct config *cfg, double *S_hat);
+DMat multiply_matrices(DMat m1, DMat m2);
+
 /*
  * ########################################################################
  * ## Main functions                                                     ##
@@ -298,24 +302,31 @@ void print_version()
 
 void coals(struct config *cfg)
 {
-        fprintf(stderr, "--- starting construction of COALS vectors\n");
+        fprintf(stderr, "--- starting construction of COALS vectors (...)\n");
 
         fprintf(stderr, "\tco-occurrence window size:\t[%d]\n", cfg->w_size);
         fprintf(stderr, "\tco-occurrence window type:\t");
         if (cfg->w_type == WTYPE_RAMPED)
-                printf("[ramped]\n");
+                fprintf(stderr, "[ramped]\n");
         if (cfg->w_type == WTYPE_FLAT)
-                printf("[flat]\n");
+                fprintf(stderr, "[flat]\n");
 
         fprintf(stderr, "\tco-occurrence matrix rows:\t[%d]\n", cfg->rows);
         fprintf(stderr, "\tco-occurrence matrix cols:\t[%d]\n", cfg->cols);
 
+        /*
+         * If no dimension reduction is requested, vector dimensionality
+         * equals the number of columns of the co-occurrence matrix.
+         */
+        if (cfg->dims == 0)
+                cfg->dims = cfg->cols;
+
         fprintf(stderr, "\tCOALS vector dimensions:\t[%d]\n", cfg->dims);
         fprintf(stderr, "\tCOALS vector type:\t\t");
         if (cfg->v_type == VTYPE_REAL)
-                printf("[real]\n");
+                fprintf(stderr, "[real]\n");
         if (cfg->v_type == VTYPE_BINARY)
-                printf("[binary]\n");
+                fprintf(stderr, "[binary]\n");
 
         fprintf(stderr, "\tunigrams file:\t\t\t[%s]\n", cfg->unigrams_fn);
         fprintf(stderr, "\tn-grams file:\t\t\t[%s]\n", cfg->ngrams_fn);
@@ -370,13 +381,40 @@ void coals(struct config *cfg)
         convert_freqs_to_correlations(dcm);
 
         /*
-         * Reduce dimensionality (with SVD; if required).
+         * Reduce dimensionality with SVD (if required).
          */
         SMat scm = NULL; SVDRec svdrec = NULL;
-        if (cfg->dims > 0) {
+        if (cfg->dims > 0 && cfg->dims < cfg->rows) {
                 fprintf(stderr, "--- reducing dimensionality with singular value decomposition (...)\n");
                 scm = svdConvertDtoS(dcm);
                 svdrec = svdLAS2A(scm, cfg->dims);
+        }
+
+        /*
+         * Extract vectors. There are two options:
+         *
+         * 1) If the dimensionality of the vectors was reduced using
+         *    SVD, we compute the matrix:
+         *
+         *    X * V^ * S^-1
+         *
+         *    in which each row represents a k-dimensional word vector.
+         *
+         * 2) If the dimensionality of the vectors was not reduced,
+         *    the vectors are simply the COALS vectors computed in
+         *    the frequency to correlation coefficients conversion 
+         *    step. 
+         */
+        fprintf(stderr, "--- extracting COALS vectors (...)\n");
+        DMat cvs = NULL;
+        /* option 1 */
+        if (svdrec) {
+                cvs = generate_reduced_vectors(cfg, dcm, svdrec);
+                svdFreeDMat(dcm);
+                svdFreeSVDRec(svdrec);
+        /* option 2 */
+        } else {
+                cvs = dcm;
         }
 
         /* clean up */
@@ -855,4 +893,100 @@ double pearson_correlation(double val, double rt, double ct, double t)
         } else {
                 return nom / denom;
         }
+}
+
+/*
+ * Generate a matrix of COALS vectors with reduced dimensionality.
+ * This is done by computing:
+ * 
+ * X * V^ * S^-1
+ *
+ * where X is the matrix of COALS vectors as computed in the frequency
+ * to correlation coefficients conversion step.
+ */
+
+DMat generate_reduced_vectors(struct config *cfg, DMat dcm, SVDRec svdrec)
+{
+        /* 
+         * SVD returns V^t. Transpose V^t to get V^.
+         */
+        fprintf(stderr, "\ttransposing V^t (...)\n");
+        DMat V_hat = svdTransposeD(svdrec->Vt);
+
+        /*
+         * SVD returns S^. Invert S^ to get S^-1.
+         */
+        fprintf(stderr, "\tinverting S^ (...)\n");
+        DMat S_hat_inv = invert_singular_values(cfg, svdrec->S);
+
+        /*
+         * Compute V^ * S^-1.
+         */
+        fprintf(stderr, "\tcomputing V^ * S^-1 (...)\n");
+        DMat V_hat_x_S_hat_inv = multiply_matrices(V_hat, S_hat_inv);
+
+        /* free V^ and S^-1 */
+        svdFreeDMat(V_hat);
+        svdFreeDMat(S_hat_inv);
+
+        /*
+         * Compute X * (V^ * S^-1).
+         */
+        fprintf(stderr, "\tcomputing X * (V^ * S^-1) (...)\n");
+        DMat cvs = multiply_matrices(dcm, V_hat_x_S_hat_inv);
+
+        /* free V^ * S^-1 */
+        free(V_hat_x_S_hat_inv);
+
+        return cvs;
+}
+
+/*
+ * Invert singular values. This function takes an array of singular values,
+ * which correspond to the diagonal cells of the S^ matrix that results 
+ * from SVD, and returns a matrix S^-1 that is the inverse of S^:
+ *
+ *      [ S_1  0   0   ]              [ (1/S_1)    0       0    ]
+ * S^ = [  0  ...  0   ]       S^-1 = [    0    .......    0    ]
+ *      [  0   0  S_n  ]              [    0       0    (1/S_n) ]
+ * 
+ * WARNING: This function only works properly for matrices that only have
+ * non-zero values in their diagonal cells (like the identity matrix).
+ */
+
+DMat invert_singular_values(struct config *cfg, double *S_hat)
+{
+        DMat S_hat_inv = svdNewDMat(cfg->dims, cfg->dims);
+
+        for (int r = 0; r < S_hat_inv->rows; r++)
+                for (int c = 0; c < S_hat_inv->cols; c++)
+                        if (r == c)
+                                S_hat_inv->value[r][c] = 1.0 / S_hat[r];
+                        else
+                                S_hat_inv->value[r][c] = 0.0;
+
+        return S_hat_inv;
+}
+
+/*
+ * Multiply two matrices.
+ *
+ * (n x m) * (m x p) = (n x p)
+ *
+ *             [ g h ]
+ * [ a b c ]   [ i j ]   [ (a * g + b * i + c * k) (a * h + b * j * c * l) ]
+ * [ d e f ] x [ k l ] = [ (d * g + e * i + f * k) (d * h + e * j * f * l) ]
+ *
+ */
+
+DMat multiply_matrices(DMat m1, DMat m2)
+{
+        DMat m3 = svdNewDMat(m1->rows, m2->cols);
+
+        for (int r = 0; r < m3->rows; r++)
+                for (int c = 0; c < m3->cols; c++)
+                        for (int i = 0; i < m1->cols; i++)
+                                m3->value[r][c] += m1->value[r][i] * m2->value[i][c];
+
+        return m3;
 }
