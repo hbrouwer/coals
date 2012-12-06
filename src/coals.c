@@ -32,6 +32,7 @@
 
 #define VTYPE_REAL 0
 #define VTYPE_BINARY 1
+#define VTYPE_BINARY_PN 2
 
 /*
  * This implements the Correlated Occurrence Analogue to Lexical Semantics
@@ -68,6 +69,8 @@ struct config
         char *output_fn;        /* output file name */
         char *enf_wds_fn;       /* enforced words file name */
 
+        int positive_fts;       /* number of positive features */
+        int negative_fts;       /* number of negative features */
 };
 
 /*
@@ -125,9 +128,12 @@ DMat multiply_matrices(DMat m1, DMat m2);
 
 void write_vectors(struct config *cfg, struct freqs **fqs,
                 struct enf_words **ewds, DMat cvs);
-void fprint_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
+void fprint_real_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
                 int r);
-bool row_contains_negatives(DMat m, int r);
+void fprint_binary_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
+                int r);
+void fprint_binary_pn_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
+                int r);
 
 /*
  * ########################################################################
@@ -192,6 +198,8 @@ int main(int argc, char **argv)
                                         cfg->v_type = VTYPE_REAL;
                                 if (strcmp(argv[i], "binary") == 0)
                                         cfg->v_type = VTYPE_BINARY;
+                                if (strcmp(argv[i], "binary_pn") == 0)
+                                        cfg->v_type = VTYPE_BINARY_PN;
                         }
                 }
                 
@@ -217,6 +225,18 @@ int main(int argc, char **argv)
                 if (strcmp(argv[i], "--enforce") == 0) {
                         if (++i < argc)
                                 cfg->enf_wds_fn = argv[i];
+                }
+
+                /* positive features */
+                if (strcmp(argv[i], "--pos_fts") == 0) {
+                        if (++i < argc)
+                                cfg->positive_fts = atoi(argv[i]);
+                }
+
+                /* negative features */
+                if (strcmp(argv[i], "--neg_fts") == 0) {
+                        if (++i < argc)
+                                cfg->negative_fts = atoi(argv[i]);
                 }
 
                 /* help */
@@ -267,6 +287,13 @@ bool config_is_sane(struct config *cfg)
         if (cfg->output_fn == NULL)
                 return false;
 
+        if (cfg->v_type == VTYPE_BINARY_PN) {
+                if (cfg->positive_fts == 0 || cfg->positive_fts > cfg->dims)
+                        return false;
+                if (cfg->negative_fts == 0 || cfg->negative_fts > cfg->dims)
+                        return false;
+        }
+
         return true;
 }
 
@@ -281,15 +308,19 @@ void print_help(char *exec_name)
 
                         "  constructing COALS vectors:\n"
                         "    --wsize <num>\tset co-occurrence window size to <num>\n"
-                        "    --wtype <type>\tuse <type> window for co-occurrences (default: ramped)\n"
+                        "    --wtype <type>\tuse <type> window for co-occurrences (dflt: ramped)\n"
                         "    --rows <num>\tset number of rows of the co-occurrence matrix to <num>\n"
                         "    --cols <num>\tset number of cols of the co-occurrence matrix to <num>\n"
                         "    --dims <num>\treduce COALS vectors to <num> dimensions (using SVD)\n"
-                        "    --vtype <type>\tconstruct <type> (real/binary) vectors (default: real)\n"
+                        "    --vtype <type>\tconstruct <type> (real/binary[_pn]) vectors (dflt: real)\n"
                         "    --unigrams <file>\tread unigram counts (word frequencies) from <file>\n"
                         "    --ngrams <file>\tread n-gram counts (co-occurrence freqs.) from <file>\n"
                         "    --output <file>\twrite COALS vectors to <file>\n"
                         "    --enforce <file>\tenforce inclusion of words in <file>\n"
+
+                        "\n"
+                        "    --pos_fts <num>\tnumber of positive features (for binary_pn vectors)\n"
+                        "    --neg_fts <num>\tnumber of negative features (for binary_pn vectors)\n"
 
                         "\n"
                         "  basic information for users:\n"
@@ -335,6 +366,16 @@ void coals(struct config *cfg)
                 fprintf(stderr, "[real]\n");
         if (cfg->v_type == VTYPE_BINARY)
                 fprintf(stderr, "[binary]\n");
+        if (cfg->v_type == VTYPE_BINARY_PN)
+                fprintf(stderr, "[binary_pn]\n");
+
+        if (cfg->v_type == VTYPE_BINARY_PN) {
+                fprintf(stderr, "\tnumber of positive features\t[%d]\n",
+                                cfg->positive_fts);
+                fprintf(stderr, "\tnumber of positive features\t[%d]\n",
+                                cfg->negative_fts);
+        }
+
 
         fprintf(stderr, "\tunigrams file:\t\t\t[%s]\n", cfg->unigrams_fn);
         fprintf(stderr, "\tn-grams file:\t\t\t[%s]\n", cfg->ngrams_fn);
@@ -392,7 +433,7 @@ void coals(struct config *cfg)
          * Reduce dimensionality with SVD (if required).
          */
         SMat scm = NULL; SVDRec svdrec = NULL;
-        if (cfg->dims > 0 && cfg->dims < cfg->rows) {
+        if (cfg->dims > 0 && cfg->dims < cfg->cols) {
                 fprintf(stderr, "--- reducing dimensionality with singular value decomposition (...)\n");
                 scm = svdConvertDtoS(dcm);
                 svdrec = svdLAS2A(scm, cfg->dims);
@@ -739,8 +780,8 @@ void populate_enf_word_hash(struct config *cfg, struct freqs **fqs,
                 strncpy(word, buf, strlen(buf) - 1); 
                 
                 /*
-                 * We only want to add a word if it occurs in the corpus.
-                 * This is the case if we have its frequency.
+                 * We only want to add a word if it occurs in the corpus,
+                 * which is the case if we have its frequency.
                  */
                 struct freqs *f;
                 HASH_FIND_STR(*fqs, word, f);
@@ -752,14 +793,14 @@ void populate_enf_word_hash(struct config *cfg, struct freqs **fqs,
                         ew->word = word;
                         HASH_ADD_KEYPTR(hh, *ewds, ew->word, strlen(ew->word), ew);
                 } else {
-                        fprintf(stderr, "\tno frequency for word:\t\t(%s)\n", word);
+                        fprintf(stderr, "\tskipping unknown word:\t\t(%s)\n", word);
                         free(word);
                 }
         }
 
         /* 
-         * Delete words that occur in the top-k frequencies;
-         * We do not want the same word to occur twice.
+         * Delete words that occur in the top-k frequencies, as
+         * we do not want the same word to occur twice.
          */
         int r; struct freqs *f; 
         for (r = 0, f = *fqs; r < cfg->rows && f != NULL; r++, f = f->hh.next) {
@@ -962,9 +1003,9 @@ DMat generate_reduced_vectors(struct config *cfg, DMat dcm, SVDRec svdrec)
  * which correspond to the diagonal cells of the S^ matrix that results 
  * from SVD, and returns a matrix S^-1 that is the inverse of S^:
  *
- *      [ S_1  0   0   ]              [ (1/S_1)    0       0    ]
+ *      [ s_1  0   0   ]              [ (1/s_1)    0       0    ]
  * S^ = [  0  ...  0   ]       S^-1 = [    0    .......    0    ]
- *      [  0   0  S_n  ]              [    0       0    (1/S_n) ]
+ *      [  0   0  s_n  ]              [    0       0    (1/s_n) ]
  * 
  * WARNING: This function only works properly for matrices that only have
  * non-zero values in their diagonal cells (like the identity matrix).
@@ -985,13 +1026,13 @@ DMat invert_singular_values(struct config *cfg, double *S_hat)
 }
 
 /*
- * Multiply two matrices.
+ * Multiply two matrices:
  *
  * (n x m) * (m x p) = (n x p)
  *
  *             [ g h ]
- * [ a b c ]   [ i j ]   [ (a * g + b * i + c * k) (a * h + b * j * c * l) ]
- * [ d e f ] x [ k l ] = [ (d * g + e * i + f * k) (d * h + e * j * f * l) ]
+ * [ a b c ]   [ i j ]   [ (a * g + b * i + c * k) (a * h + b * j + c * l) ]
+ * [ d e f ] x [ k l ] = [ (d * g + e * i + f * k) (d * h + e * j + f * l) ]
  */
 
 DMat multiply_matrices(DMat m1, DMat m2)
@@ -1024,23 +1065,40 @@ void write_vectors(struct config *cfg, struct freqs **fqs,
 
         /* write vectors of the top-k words */
         int r; struct freqs *f;
-        for (r = 0, f = *fqs; r < (cvs->rows - extra_rows) && f != NULL; r++, f = f->hh.next)
-                if (!row_contains_negatives(cvs, r))
-                        fprintf(stderr, "\tmonotonic vector for:\t\t(%s)\n", f->word);
-                else {
-                        fprint_vector(fd, cfg, f->word, cvs, r);
-                        num_written++;
+        for (r = 0, f = *fqs; r < (cvs->rows - extra_rows) && f != NULL; r++, f = f->hh.next) {
+                if (f->cfqs == NULL) {
+                        fprintf(stderr, "\tskipping invalid vector:\t(%s)\n", f->word);
+                        continue;
                 }
+
+                if (cfg->v_type == VTYPE_REAL)
+                        fprint_real_vector(fd, cfg, f->word, cvs, r);
+                if (cfg->v_type == VTYPE_BINARY)
+                        fprint_binary_vector(fd, cfg, f->word, cvs, r);
+                if (cfg->v_type == VTYPE_BINARY_PN)
+                        fprint_binary_pn_vector(fd, cfg, f->word, cvs, r);
+
+                num_written++;
+        }
 
         /* enter vectors of enforced words */
         struct enf_words *ew;
-        for (r = (cvs->rows - extra_rows), ew = *ewds; r < cvs->rows && ew != NULL; r++, ew = ew->hh.next)
-                if (!row_contains_negatives(cvs, r))
-                        fprintf(stderr, "\tmonotonic vector for:\t\t(%s)\n", ew->word);
-                else {
-                        fprint_vector(fd, cfg, ew->word, cvs, r);
-                        num_written++;
+        for (r = (cvs->rows - extra_rows), ew = *ewds; r < cvs->rows && ew != NULL; r++, ew = ew->hh.next) {
+                HASH_FIND_STR(*fqs, ew->word, f);
+                if (f->cfqs == NULL) {
+                        fprintf(stderr, "\tskipping invalid vector:\t(%s)\n", ew->word);
+                        continue;
                 }
+
+                if (cfg->v_type == VTYPE_REAL)
+                        fprint_real_vector(fd, cfg, ew->word, cvs, r);
+                if (cfg->v_type == VTYPE_BINARY)
+                        fprint_binary_vector(fd, cfg, ew->word, cvs, r);
+                if (cfg->v_type == VTYPE_BINARY_PN)
+                        fprint_binary_pn_vector(fd, cfg, ew->word, cvs, r);
+                        
+                num_written++;
+        }
 
         fclose(fd);
 
@@ -1054,40 +1112,43 @@ error_out:
 }
 
 /*
- * Print a vector to a file.
+ * Print a real vector to a file.
  */
 
-void fprint_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
+void fprint_real_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
                 int r)
 {
         fprintf(fd, "\"%s\"", w);
         for (int c = 0; c < cvs->cols; c++) {
-                /* real vectors */
-                if (cfg->v_type == VTYPE_REAL) {
-                        fprintf(fd, ",%f", cvs->value[r][c]);
-                }
-                /* binary vectors */
-                if (cfg->v_type == VTYPE_BINARY) {
-                        if (cvs->value[r][c] > 0) {
-                                fprintf(fd, ",1");
-                        } else {
-                                fprintf(fd, ",0");
-                        }
-                }
+                fprintf(fd, ",%f", cvs->value[r][c]);
         }
-
         fprintf(fd, "\n");
 }
 
 /*
- * Check whether a matrix row contains negative values.
+ * Print a binary vector to a file.
  */
 
-bool row_contains_negatives(DMat m, int r)
+void fprint_binary_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
+                int r)
 {
-        for (int c = 0; c < m->cols; c++)
-                if (m->value[r][c] < 0.0)
-                        return true;
+        fprintf(fd, "\"%s\"", w);
+        for (int c = 0; c < cvs->cols; c++) {
+                if (cvs->value[r][c] > 0) {
+                        fprintf(fd, ",1");
+                } else {
+                        fprintf(fd, ",0");
+                }
+        }
+        fprintf(fd, "\n");
+}
 
-        return false;
+/*
+ * Print a binary-pn vector to a file.
+ */
+void fprint_binary_pn_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
+                int r)
+{
+        fprintf(fd, "\"%s\"", w);
+        fprintf(fd, "\n");
 }
