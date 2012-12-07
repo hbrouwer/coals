@@ -1146,10 +1146,18 @@ void fprint_binary_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
 /*
  * Print a binary_pn vector to a file.
  *
- * This implements an extesion to COALS proposed by Chang, Furber,
- * & Welbourne (2012).
+ * This implements an extension to COALS that incorporates both a fixed
+ * number of positive and negative features into vectors (Chang, Furber, &
+ * Welbourne, 2012). The main idea is to concatenate two k-dimensional
+ * vectors, producing a 2k-dimensional vector, and to set the the n-most
+ * positive features to 1 in the first k units, and to set the m-most
+ * negative features to 1 in the second k units.
  *
- * (description goes here)
+ * [ u_1 ... u_k ] --> [ u_1 ... u_k, u_n+1 ... u_2k ]
+ *                       |_________|  |____________|
+ *                            |             |
+ *                        positive       negative
+ *                        features       features
  *
  * References
  *
