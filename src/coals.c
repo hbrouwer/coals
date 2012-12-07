@@ -34,6 +34,8 @@
 #define VTYPE_BINARY 1
 #define VTYPE_BINARY_PN 2
 
+#define BUF_SIZE 32768
+
 /*
  * This implements the Correlated Occurrence Analogue to Lexical Semantics
  * (COALS; Rohde, Gonnerman, & Plaut, 2005).
@@ -71,6 +73,9 @@ struct config
 
         int positive_fts;       /* number of positive features */
         int negative_fts;       /* number of negative features */
+
+        char *vectors_fn;       /* COALS vectors file name */
+        int top_k;              /* number of similar words */
 };
 
 /*
@@ -92,6 +97,16 @@ struct freqs
 struct enf_words
 {
         char *word;             /* word string (hash-key) */
+        UT_hash_handle hh;      /* hash handle */
+};
+
+/*
+ * Hash table of COALS vectors.
+ */
+struct vectors
+{
+        char *word;             /* word string (hash-key) */
+        double *vector;         /* COALS vectors */
         UT_hash_handle hh;      /* hash handle */
 };
 
@@ -134,6 +149,20 @@ void fprint_binary_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
                 int r);
 void fprint_binary_pn_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
                 int r);
+
+void similarity(struct config *cfg);
+
+void identify_model_parameters(struct config *cfg);
+void populate_vector_hash(struct config *cfg, struct vectors **vecs);
+
+DMat construct_sm(struct config *cfg, struct vectors **vecs);
+
+double vector_mean(double *v, int dims);
+double vector_similarity(double *v1, double v1_mean, double *v2,
+                double v2_mean, int dims);
+
+void write_topk_similar_words(struct config *cfg, struct vectors **vecs,
+                DMat dsm);
 
 /*
  * ########################################################################
@@ -239,6 +268,18 @@ int main(int argc, char **argv)
                                 cfg->negative_fts = atoi(argv[i]);
                 }
 
+                /* vectors */
+                if (strcmp(argv[i], "--vectors") == 0) {
+                        if (++i < argc)
+                                cfg->vectors_fn = argv[i];
+                }
+
+                /* top-k similar words */
+                if (strcmp(argv[i], "--topk") == 0) {
+                        if (++i < argc)
+                                cfg->top_k = atoi(argv[i]);
+                }
+
                 /* help */
                 if (strcmp(argv[i], "--help") == 0) {
                         print_help(argv[0]);
@@ -257,7 +298,10 @@ int main(int argc, char **argv)
                 exit(EXIT_FAILURE);
         }
 
-        coals(cfg);
+        if (!cfg->vectors_fn)
+                coals(cfg);
+        else
+                similarity(cfg);
 
         free(cfg);
 
@@ -274,23 +318,29 @@ error_out:
 
 bool config_is_sane(struct config *cfg)
 {
-        if (cfg->w_size == 0)
-                return false;
-        if (cfg->rows == 0)
-                return false;
-        if (cfg->cols == 0)
-                return false;
-        if (cfg->unigrams_fn == NULL)
-                return false;
-        if (cfg->ngrams_fn == NULL)
-                return false;
         if (cfg->output_fn == NULL)
                 return false;
 
-        if (cfg->v_type == VTYPE_BINARY_PN) {
-                if (cfg->positive_fts == 0 || cfg->positive_fts > cfg->dims)
+        if (!cfg->vectors_fn) {
+                if (cfg->w_size == 0)
                         return false;
-                if (cfg->negative_fts == 0 || cfg->negative_fts > cfg->dims)
+                if (cfg->rows == 0)
+                        return false;
+                if (cfg->cols == 0)
+                        return false;
+                if (cfg->unigrams_fn == NULL)
+                        return false;
+                if (cfg->ngrams_fn == NULL)
+                        return false;
+
+                if (cfg->v_type == VTYPE_BINARY_PN) {
+                        if (cfg->positive_fts == 0 || cfg->positive_fts > cfg->dims)
+                                return false;
+                        if (cfg->negative_fts == 0 || cfg->negative_fts > cfg->dims)
+                                return false;
+                }
+        } else {
+                if (cfg->top_k == 0)
                         return false;
         }
 
@@ -317,10 +367,16 @@ void print_help(char *exec_name)
                         "    --ngrams <file>\tread n-gram counts (co-occurrence freqs.) from <file>\n"
                         "    --output <file>\twrite COALS vectors to <file>\n"
                         "    --enforce <file>\tenforce inclusion of words in <file>\n"
-
+                        
                         "\n"
                         "    --pos_fts <num>\tnumber of positive features (for binary_pn vectors)\n"
                         "    --neg_fts <num>\tnumber of negative features (for binary_pn vectors)\n"
+
+                        "\n"
+                        "  extracting similar words:\n"
+                        "    --vectors <file>\tcompute similarities on basis of vectors in <file>\n"
+                        "    --output <file>\twrite top-k similar word sets to <file>\n"
+                        "    --topk <num>\textract top-<num> similar words for each word\n"
 
                         "\n"
                         "  basic information for users:\n"
@@ -376,7 +432,6 @@ void coals(struct config *cfg)
                                 cfg->negative_fts);
         }
 
-
         fprintf(stderr, "\tunigrams file:\t\t\t[%s]\n", cfg->unigrams_fn);
         fprintf(stderr, "\tn-grams file:\t\t\t[%s]\n", cfg->ngrams_fn);
         fprintf(stderr, "\toutput file:\t\t\t[%s]\n", cfg->output_fn);
@@ -421,7 +476,7 @@ void coals(struct config *cfg)
          */
         fprintf(stderr, "--- constructing a co-occurrence matrix (...)\n");
         DMat dcm = construct_cm(cfg, &fqs, &ewds);
-        fprintf(stderr, "\tbuilt a [%ldx%ld] matrix\n", dcm->rows, dcm->cols);
+        fprintf(stderr, "\tbuilt matrix:\t\t\t[%ldx%ld]\n", dcm->rows, dcm->cols);
 
         /*
          * Convert frequencies to correlations.
@@ -1238,4 +1293,241 @@ void fprint_binary_pn_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
         }
 
         fprintf(fd, "\n");
+}
+
+/*
+ * ########################################################################
+ * ## Extract similar words                                              ##
+ * ########################################################################
+ */
+
+/*
+ * Main similarity function.
+ */
+
+void similarity(struct config *cfg)
+{
+        fprintf(stderr, "--- starting extraction of top-k similar words (...)\n");
+
+        fprintf(stderr, "\tvectors file:\t\t\t[%s]\n", cfg->vectors_fn);
+        fprintf(stderr, "\toutput file:\t\t\t[%s]\n", cfg->output_fn);
+        fprintf(stderr, "\ttop-k:\t\t\t\t[%d]\n", cfg->top_k);
+
+        fprintf(stderr, "--- identifying model parameters from vectors file: [%s] (...)\n",
+                        cfg->vectors_fn);
+        identify_model_parameters(cfg);
+        fprintf(stderr, "\tnumber of vectors:\t\t[%d]\n", cfg->rows);
+        fprintf(stderr, "\tvector dimensionality:\t\t[%d]\n", cfg->dims);
+
+        fprintf(stderr, "--- populating vectors hash from: [%s] (...)\n",
+                        cfg->vectors_fn);
+        struct vectors *vecs = NULL;
+        populate_vector_hash(cfg, &vecs);
+        fprintf(stderr, "\tvectors read:\t\t\t[%d]\n", HASH_COUNT(vecs));
+
+        fprintf(stderr, "--- constructing a similarity matrix (...)\n");
+        DMat dsm = construct_sm(cfg, &vecs);
+        fprintf(stderr, "\tbuilt matrix:\t\t\t[%ldx%ld]\n", dsm->rows, dsm->cols);
+
+        fprintf(stderr, "--- writing top-k most similar words to: [%s]\n",
+                        cfg->output_fn);
+        write_topk_similar_words(cfg, &vecs, dsm);
+
+        fprintf(stderr, "--- cleaning up (...)\n");
+        svdFreeDMat(dsm);
+}
+
+void identify_model_parameters(struct config *cfg)
+{
+        FILE *fd;
+        if (!(fd = fopen(cfg->vectors_fn, "r")))
+                goto error_out;
+
+        char buf[BUF_SIZE];
+        while (fgets(buf, sizeof(buf), fd)) {
+                /* determine number of columns */
+                if (cfg->cols == 0) {
+                        strtok(buf, ",");
+                        while (strtok(NULL, ","))
+                                cfg->cols++;
+                }
+                /* count rows */
+                cfg->rows++;
+        }
+
+        cfg->dims = cfg->cols;
+
+        fclose(fd);
+
+        return;
+
+error_out:
+        perror("[identify_model_parameters()]");
+        return;
+}
+
+/*
+ * Populate vector hash from file.
+ */
+
+void populate_vector_hash(struct config *cfg, struct vectors **vecs)
+{
+        FILE *fd;
+        if (!(fd = fopen(cfg->vectors_fn, "r")))
+                goto error_out;
+
+        /* read all vectors */
+        char buf[BUF_SIZE];
+        while (fgets(buf, sizeof(buf), fd)) {
+                struct vectors *v;
+                if (!(v = malloc(sizeof(struct vectors))))
+                        goto error_out;
+                memset(v, 0, sizeof(struct vectors));
+                
+                char *fq = index(buf, '"');
+                char *lq = rindex(buf, '"');
+               
+                /* isolate word */
+                int len = lq - ++fq;
+                int block_size = (len + 1) * sizeof(char);
+                if (!(v->word = malloc(block_size)))
+                        goto error_out;
+                memset(v->word, 0, block_size);
+                strncpy(v->word, fq, len);
+
+                /* isolate vector */
+                block_size = cfg->cols * sizeof(double);
+                if (!(v->vector = malloc(block_size)))
+                        goto error_out;
+                memset(v->vector, 0, block_size);
+                char *tok = strtok(buf, ",");
+                for (int i = 0; i < cfg->cols; i++) {
+                        tok = strtok(NULL, ",");
+                        v->vector[i] = atoi(tok);
+                }
+
+                /* add word vector to vector hash */
+                HASH_ADD_KEYPTR(hh, *vecs, v->word, strlen(v->word), v);
+        }
+
+        fclose(fd);
+
+        return;
+
+error_out:
+        perror("[populate_vector_hash()]");
+        return;
+}
+
+/*
+ * Construct a vector similarity matrix.
+ */
+
+DMat construct_sm(struct config *cfg, struct vectors **vecs)
+{
+        DMat dsm = svdNewDMat(cfg->rows, cfg->rows);
+
+        int r; struct vectors *rv;
+        for (r = 0, rv = *vecs; r < cfg->rows && rv != NULL; r++, rv = rv->hh.next) {
+                double rv_mean = vector_mean(rv->vector, cfg->cols);
+                int c; struct vectors *cv;
+                for (c = 0, cv = *vecs; c < cfg->rows && cv != NULL; c++, cv = cv->hh.next) {
+                        double cv_mean = vector_mean(cv->vector, cfg->cols);
+                        dsm->value[r][c] = vector_similarity(rv->vector, rv_mean,
+                                        cv->vector, cv_mean, cfg->cols);
+                }
+        }
+
+        return dsm;
+}
+
+/*
+ * Compute the mean value of a vector:
+ *
+ * mean = 1/n sum_i v_i
+ *
+ * where n is the number of dimensions of the vector.
+ */
+
+double vector_mean(double *v, int dims)
+{
+        double mean = 0.0;
+
+        for (int i = 0; i < dims; i++)
+                mean += v[i];
+
+        return mean / dims;
+}
+
+/*
+ * Compute vector similarity using Pearson's correlation.
+ *
+ *                      sum_i (a_i - a) (b_i - b)
+ * S(a,b) = -------------------------------------------------
+ *          (sum_i (a_i - a) ^ 2 * sum_i (b_i - b) ^ 2) ^ 0.5
+ */
+
+double vector_similarity(double *v1, double v1_mean, double *v2,
+                double v2_mean, int dims)
+{
+        double nom = 0.0, asq = 0.0, bsq = 0.0;
+
+        for (int i = 0; i < dims; i++) {
+                nom += (v1[i] - v1_mean) * (v2[i] - v2_mean);
+                asq += pow(v1[i] - v1_mean, 2.0);
+                bsq += pow(v2[i] - v2_mean, 2.0);
+        }
+
+        return nom / pow(asq * bsq, 0.5);
+}
+
+/*
+ * Write top-k most similar words.
+ */
+
+void write_topk_similar_words(struct config *cfg, struct vectors **vecs,
+                DMat dsm)
+{
+        FILE *fd;
+        if (!(fd = fopen(cfg->output_fn, "w")))
+                goto error_out;
+
+        int r; struct vectors *rv;
+        for (r = 0, rv = *vecs; r < cfg->rows && rv != NULL; r++, rv = rv->hh.next) {
+                /* identify top-k most similar */
+                int topk_idxs[cfg->top_k];
+                for (int i = 0; i < cfg->top_k; i++) {
+                        topk_idxs[i] = 0;
+                        for (int c = 0; c < cfg->rows; c++) {
+                                /* skip identical word pairs */
+                                if (r == c)
+                                        continue;
+                                /* skip if we already have this word */
+                                bool seen = false;
+                                for (int j = 0; j < i; j++)
+                                        if (topk_idxs[j] == c)
+                                                seen = true;
+                                if (seen)
+                                        continue;
+                                if (dsm->value[r][c] > dsm->value[r][topk_idxs[i]])
+                                        topk_idxs[i] = c;
+                        }
+                }
+
+                /* write top-k most similar */
+                for (int i = 0; i < cfg->top_k; i++) {
+                        int c; struct vectors *cv;
+                        for (c = 0, cv = *vecs; c < cfg->rows && cv != NULL; c++, cv = cv->hh.next)
+                                if (topk_idxs[i] == c)
+                                        fprintf(fd, "%s %s %f\n", rv->word, cv->word, dsm->value[r][c]);
+                }
+        }
+
+        fclose(fd);
+
+        return;
+
+error_out:
+        perror("[write_topk_similar_words()]");
+        return;
 }
