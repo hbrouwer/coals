@@ -36,7 +36,7 @@
 
 /*
  * This implements the Correlated Occurrence Analogue to Lexical Semantics
- * (COALS; Rohde, Gonnerman, and Plaut, 2005).
+ * (COALS; Rohde, Gonnerman, & Plaut, 2005).
  *
  * (description goes here)
  *
@@ -1144,11 +1144,90 @@ void fprint_binary_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
 }
 
 /*
- * Print a binary-pn vector to a file.
+ * Print a binary_pn vector to a file.
+ *
+ * This implements an extesion to COALS proposed by Chang, Furber,
+ * & Welbourne (2012).
+ *
+ * (description goes here)
+ *
+ * References
+ *
+ * Chang, Y., Furber, S., & Welbourne, S. (2012). Generating Realistic
+ *     Semantic Codes for Use in Neural Network Models.
  */
 void fprint_binary_pn_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
                 int r)
 {
+        int pos_fts_idxs[cfg->positive_fts];
+        int neg_fts_idxs[cfg->negative_fts];
+
+        /* identify the n most positive features */
+        for (int i = 0; i < cfg->positive_fts; i++) {
+                pos_fts_idxs[i] = 0;
+                for (int c = 0; c < cvs->cols; c++) {
+                        /* skip if we already have this feature */
+                        bool seen = false;
+                        for (int j = 0; j < i; j++)
+                                if (pos_fts_idxs[j] == c)
+                                        seen = true;
+                        if (seen)
+                                continue;
+                        if (cvs->value[r][c] > cvs->value[r][pos_fts_idxs[i]]
+                                        && cvs->value[r][c] > 0.0)
+                                pos_fts_idxs[i] = c;
+                }
+        }
+
+        /* identify the m most negative features */
+        for (int i = 0; i < cfg->negative_fts; i++) {
+                neg_fts_idxs[i] = 0;
+                for (int c = 0; c < cvs->cols; c++) {
+                        /* skip if we already have this feature */
+                        bool seen = false;
+                        for (int j = 0; j < i; j++)
+                                if (neg_fts_idxs[j] == c)
+                                        seen = true;
+                        if (seen)
+                                continue;
+                        /* skip if feature is a positive feature */
+                        bool is_pos = false;
+                        for (int j = 0; j < cfg->positive_fts; j++)
+                                if (pos_fts_idxs[j] == c)
+                                        is_pos = true;
+                        if (is_pos)
+                                continue;
+                        if (cvs->value[r][c] < cvs->value[r][neg_fts_idxs[i]]
+                                        && cvs->value[r][c] < 0.0)
+                                neg_fts_idxs[i] = c;
+                }
+        }
+
         fprintf(fd, "\"%s\"", w);
+
+        /* write half with positive features active */
+        for (int c = 0; c < cvs->cols; c++) {
+                bool on = false;
+                for (int i = 0; i < cfg->positive_fts; i++)
+                        if (pos_fts_idxs[i] == c)
+                                on = true;
+                if (on)
+                        fprintf(fd, ",1");
+                else
+                        fprintf(fd, ",0");
+        }
+
+        /* write half with negative features active */
+        for (int c = 0; c < cvs->cols; c++) {
+                bool on = false;
+                for (int i = 0; i < cfg->negative_fts; i++)
+                        if (neg_fts_idxs[i] == c)
+                                on = true;
+                if (on)
+                        fprintf(fd, ",1");
+                else
+                        fprintf(fd, ",0");
+        }
+
         fprintf(fd, "\n");
 }
