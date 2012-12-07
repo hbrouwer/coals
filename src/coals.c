@@ -34,7 +34,7 @@
 #define VTYPE_BINARY 1
 #define VTYPE_BINARY_PN 2
 
-#define BUF_SIZE 32768
+#define BUF_SIZE 131072
 
 /*
  * This implements the Correlated Occurrence Analogue to Lexical Semantics
@@ -1227,7 +1227,7 @@ void fprint_binary_pn_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
 
         /* identify the n most positive features */
         for (int i = 0; i < cfg->positive_fts; i++) {
-                pos_fts_idxs[i] = 0;
+                pos_fts_idxs[i] = -1;
                 for (int c = 0; c < cvs->cols; c++) {
                         /* skip if we already have this feature */
                         bool seen = false;
@@ -1236,7 +1236,9 @@ void fprint_binary_pn_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
                                         seen = true;
                         if (seen)
                                 continue;
-                        if (cvs->value[r][c] > cvs->value[r][pos_fts_idxs[i]]
+                        if (pos_fts_idxs[i] == -1)
+                                pos_fts_idxs[i] = c;
+                        else if (cvs->value[r][c] > cvs->value[r][pos_fts_idxs[i]]
                                         && cvs->value[r][c] > 0.0)
                                 pos_fts_idxs[i] = c;
                 }
@@ -1244,7 +1246,7 @@ void fprint_binary_pn_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
 
         /* identify the m most negative features */
         for (int i = 0; i < cfg->negative_fts; i++) {
-                neg_fts_idxs[i] = 0;
+                neg_fts_idxs[i] = -1;
                 for (int c = 0; c < cvs->cols; c++) {
                         /* skip if we already have this feature */
                         bool seen = false;
@@ -1260,7 +1262,9 @@ void fprint_binary_pn_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
                                         is_pos = true;
                         if (is_pos)
                                 continue;
-                        if (cvs->value[r][c] < cvs->value[r][neg_fts_idxs[i]]
+                        if (neg_fts_idxs[i] == -1)
+                                neg_fts_idxs[i] = c;
+                        else if (cvs->value[r][c] < cvs->value[r][neg_fts_idxs[i]]
                                         && cvs->value[r][c] < 0.0)
                                 neg_fts_idxs[i] = c;
                 }
@@ -1329,7 +1333,7 @@ void similarity(struct config *cfg)
         DMat dsm = construct_sm(cfg, &vecs);
         fprintf(stderr, "\tbuilt matrix:\t\t\t[%ldx%ld]\n", dsm->rows, dsm->cols);
 
-        fprintf(stderr, "--- writing top-k most similar words to: [%s]\n",
+        fprintf(stderr, "--- writing top-k most similar words to: [%s] (...)\n",
                         cfg->output_fn);
         write_topk_similar_words(cfg, &vecs, dsm);
 
@@ -1403,7 +1407,7 @@ void populate_vector_hash(struct config *cfg, struct vectors **vecs)
                 char *tok = strtok(buf, ",");
                 for (int i = 0; i < cfg->cols; i++) {
                         tok = strtok(NULL, ",");
-                        v->vector[i] = atoi(tok);
+                        v->vector[i] = atof(tok);
                 }
 
                 /* add word vector to vector hash */
@@ -1431,6 +1435,7 @@ DMat construct_sm(struct config *cfg, struct vectors **vecs)
         for (r = 0, rv = *vecs; r < cfg->rows && rv != NULL; r++, rv = rv->hh.next) {
                 double rv_mean = vector_mean(rv->vector, cfg->cols);
                 int c; struct vectors *cv;
+
                 for (c = 0, cv = *vecs; c < cfg->rows && cv != NULL; c++, cv = cv->hh.next) {
                         double cv_mean = vector_mean(cv->vector, cfg->cols);
                         dsm->value[r][c] = vector_similarity(rv->vector, rv_mean,
@@ -1497,7 +1502,7 @@ void write_topk_similar_words(struct config *cfg, struct vectors **vecs,
                 /* identify top-k most similar */
                 int topk_idxs[cfg->top_k];
                 for (int i = 0; i < cfg->top_k; i++) {
-                        topk_idxs[i] = 0;
+                        topk_idxs[i] = -1;
                         for (int c = 0; c < cfg->rows; c++) {
                                 /* skip identical word pairs */
                                 if (r == c)
@@ -1509,7 +1514,9 @@ void write_topk_similar_words(struct config *cfg, struct vectors **vecs,
                                                 seen = true;
                                 if (seen)
                                         continue;
-                                if (dsm->value[r][c] > dsm->value[r][topk_idxs[i]])
+                                if (topk_idxs[i] == -1)
+                                        topk_idxs[i] = c;
+                                else if (dsm->value[r][c] > dsm->value[r][topk_idxs[i]])
                                         topk_idxs[i] = c;
                         }
                 }
