@@ -793,7 +793,7 @@ void dispose_freq_hash(struct freqs **fqs)
 bool is_word(char *word)
 {
         /*
-         * String is a non-word is it contains
+         * String is a non-word if it contains
          * punctuation characthers other than a
          * dash.
          */
