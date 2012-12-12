@@ -50,12 +50,12 @@
  * the most frequent words, are discarded. Co-occurrence counts are then
  * converted to word-pair correlations; negative correlations set to zero,
  * and positive correlations are replaced by their square root in order to
- * magnify them. The rows of the co-occurrence table then represent COALS
- * vectors for their respective words. Optionally, Singular Value
- * Decomposition (SVD) can be used to reduce the dimensionality of these
- * vectors, and these reduced vectors can, in turn, be converted to binary
- * vectors, by setting negative components to zero, and positive components
- * to one.
+ * reduce difference between them. The rows of the co-occurrence table then
+ * represent COALS vectors for their respective words. Optionally, Singular
+ * Value Decomposition (SVD) can be used to reduce the dimensionality of
+ * these vectors, and these reduced vectors can, in turn, be converted to
+ * binary vectors, by setting negative components to zero, and positive
+ * components to one.
  *
  * References
  *
@@ -957,8 +957,8 @@ DMat construct_cm(struct config *cfg, struct freqs **fqs,
 
 /*
  * Convert raw frequencies to correlation coefficients. Negative
- * correlations are set to zero, and positive correlations are magnified
- * by taking their square root.
+ * correlations are set to zero, and positive correlations are replaced by
+ * their square root.
  */
 
 void convert_freqs_to_correlations(DMat dcm)
@@ -980,7 +980,7 @@ void convert_freqs_to_correlations(DMat dcm)
          * Replace frequencies with correlations. If
          * a correlation is negative, set its corresponding
          * cell to zero. If it is positive, by contrast,
-         * take its square root to magnify it.
+         * take its square root.
          */
         for (int r = 0; r < dcm->rows; r++) {
                 for (int c = 0; c < dcm->cols; c++) {
