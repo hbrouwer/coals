@@ -1234,6 +1234,7 @@ void fprint_binary_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
  * Chang, Y., Furber, S., & Welbourne, S. (2012). Generating Realistic
  *     Semantic Codes for Use in Neural Network Models.
  */
+
 void fprint_binary_pn_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
                 int r)
 {
