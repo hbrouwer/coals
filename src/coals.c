@@ -965,7 +965,7 @@ void convert_freqs_to_correlations(DMat dcm)
 {
         DMat rts = svdNewDMat(dcm->rows, 1);
         DMat cts = svdNewDMat(1, dcm->cols);
-        double t;
+        double t = 0.0;
 
         /* determine row, column, and grand total */
         for (int r = 0; r < dcm->rows; r++) {
