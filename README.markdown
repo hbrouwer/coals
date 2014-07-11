@@ -97,18 +97,18 @@ Here is an example of how to create 100-bits binary COALS vectors for the
 
 The assumed input format for the unigrams is:
 
-    1|unigram_1|*f*
-    1|unigram_2|*f*
+    1|unigram_1|f
+    1|unigram_2|f
     .|.........|.
-    1|unigram_n|*f*
+    1|unigram_n|f
 
 where *f* is an integer representing the frequency of the unigram. The assumed
 input format for the n-grams, in turn, is:
 
-    *n*|ngram_1|*f*
-    *n*|ngram_2|*f*
+    n|ngram_1|f
+    n|ngram_2|f
     .|.......|...
-    *n*|ngram_n|*f*
+    n|ngram_n|f
 
 where *n* denotes the size of the *n*-gram, and *f* its frequency.
 
