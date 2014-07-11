@@ -1,7 +1,7 @@
 /*
  * coals.c
  *
- * Copyright 2012, 2013 Harm Brouwer <me@hbrouwer.eu>
+ * Copyright 2012-2014 Harm Brouwer <me@hbrouwer.eu>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@
 #include "../lib/uthash-1.9.7/src/uthash.h"
 #include "../lib/SVDLIBC/svdlib.h"
 
-#define VERSION "0.1-beta"
+#define VERSION "0.99-beta"
 
 #define WTYPE_RAMPED 0
 #define WTYPE_FLAT 1
@@ -189,7 +189,7 @@ int main(int argc, char **argv)
 {
         printf("\n");
         printf("COALS version %s\n", VERSION);
-        printf("Copyright (c) 2013 Harm Brouwer <me@hbrouwer.eu>\n");
+        printf("Copyright (c) 2012-2014 Harm Brouwer <me@hbrouwer.eu>\n");
         printf("Center for Language and Cognition, University of Groningen\n");
         printf("Netherlands Organisation for Scientific Research (NWO)\n");
         printf("\n");

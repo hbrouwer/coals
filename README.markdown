@@ -28,8 +28,54 @@ vectors for their respective words. Optionally, Singular Value Decomposition
 reduced vectors can, in turn, be converted to binary vectors, by setting
 negative components to zero, and positive components to one.
 
-References
-----------
-
 * Rohde, D. L. T., Gonnerman, L. M., & Plaut, D. C. (2005). *An Improved
   Model of Semantic Similarity Based on Lexical Co-Occurrence*.
+
+Disclaimer
+----------
+
+I released the code "as is"; that is, in the state I used it for the
+modeling work in my [PhD
+thesis](http://dissertations.ub.rug.nl/faculties/arts/2014/h.brouwer/?pLanguage=en).
+
+Usage
+-----
+
+  ./coals
+
+  COALS version 0.99-beta
+  Copyright (c) 2012-2014 Harm Brouwer <me@hbrouwer.eu>
+  Center for Language and Cognition, University of Groningen
+  Netherlands Organisation for Scientific Research (NWO)
+
+  usage ./coals [options]
+
+    constructing COALS vectors:
+      --wsize <num>	set co-occurrence window size to <num>
+      --wtype <type>	use <type> window for co-occurrences (dflt: ramped)
+      --rows <num>	set number of rows of the co-occurrence matrix to <num>
+      --cols <num>	set number of cols of the co-occurrence matrix to <num>
+      --dims <num>	reduce COALS vectors to <num> dimensions (using SVD)
+      --vtype <type>	construct <type> (real/binary[_pn]) vectors (dflt: real)
+      --unigrams <file>	read unigram counts (word frequencies) from <file>
+      --ngrams <file>	read n-gram counts (co-occurrence freqs.) from <file>
+      --output <file>	write COALS vectors to <file>
+      --enforce <file>	enforce inclusion of words in <file>
+
+      --pos_fts <num>	number of positive features (for binary_pn vectors)
+      --neg_fts <num>	number of negative features (for binary_pn vectors)
+
+    extracting similar words:
+      --vectors <file>	compute similarities on basis of vectors in <file>
+      --output <file>	write top-k similar word sets to <file>
+      --topk <num>	extract top-<num> similar words for each word
+
+    basic information for users:
+      --help		shows this help message
+      --version		shows version
+
+Dependencies
+------------
+
+COALS requires [uthash](http://troydhanson.github.io/uthash/) and
+[svdlibc](https://github.com/lucasmaystre/svdlibc).
