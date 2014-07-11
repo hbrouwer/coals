@@ -112,6 +112,13 @@ input format for the *n-gram counts*, in turn, is:
 
 where *n* denotes the size of the *n*-gram, and *f* its frequency.
 
+Once you have constructed the vectors, you can use them to construct lists
+of top $k$ similar words. The following command will give compute for each
+word, the top 25 most similar words, on the basis of the 100 bits binary
+vectors that were just constructed:
+
+    coals --vectors coals-svdb-100.model --output top-similar.txt --topk 25
+
 Dependencies
 ------------
 
