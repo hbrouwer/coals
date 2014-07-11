@@ -76,7 +76,6 @@ Usage
         --help              shows this help message
         --version           shows version
 
-
 Example
 -------
 
@@ -84,7 +83,9 @@ Here is an example of how to create 100-bits binary COALS vectors for the
 15000 most frequent words in a corpus, using a 4-word ramped window, and the
 14000 most frequent features:
 
-    coals --wsize 4 --wtype ramped --rows 15000 --cols 14000 --unigrams data/1-grams --ngrams data/9-grams  --vtype binary --dims 100 --output coals-svdb-100.model
+    coals --wsize 4 --wtype ramped --rows 15000 --cols 14000
+          --unigrams data/1-grams --ngrams data/9-grams
+          --vtype binary --dims 100 --output coals-svdb-100.model
 
 Dependencies
 ------------
