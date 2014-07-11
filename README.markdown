@@ -34,9 +34,11 @@ negative components to zero, and positive components to one.
 Disclaimer
 ----------
 
-I released the code "as is"; that is, in the state I used it for the
-modeling work in my [PhD
+I released the code "as is"; that is, in the state in which I used it for
+the modeling work in my [PhD
 thesis](http://dissertations.ub.rug.nl/faculties/arts/2014/h.brouwer/?pLanguage=en).
+As such, it does what it has to do, but there is still a lot of room for
+improvement.
 
 Usage
 -----
@@ -74,6 +76,15 @@ Usage
         --help              shows this help message
         --version           shows version
 
+
+Example
+-------
+
+Here is an example of how to create 100-bits binary COALS vectors for the
+15000 most frequent words in a corpus, using a 4-word ramped window, and the
+14000 most frequent features:
+
+    coals --wsize 4 --wtype ramped --rows 15000 --cols 14000 --unigrams data/1-grams --ngrams data/9-grams  --vtype binary --dims 100 --output coals-svdb-100.model
 
 Dependencies
 ------------
