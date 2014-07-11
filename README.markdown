@@ -28,6 +28,14 @@ vectors for their respective words. Optionally, Singular Value Decomposition
 reduced vectors can, in turn, be converted to binary vectors, by setting
 negative components to zero, and positive components to one.
 
+The implementation also supports a recent extension to the COALS model as
+proposed by Chang et al. (2012).
+
+* Chang, Y., Furber, S., & Welbourne, S. (2012). *Generating Realistic
+  Semantic Codes for Use in Neural Network Models*. In Miyake, N., Peebles,
+  D, and Cooper, R. P. (Eds.). Proceedings of the 34th Annual Meeting of the
+  Cognitive Science Society (CogSci 2012).
+
 * Rohde, D. L. T., Gonnerman, L. M., & Plaut, D. C. (2005). *An Improved
   Model of Semantic Similarity Based on Lexical Co-Occurrence*.
 

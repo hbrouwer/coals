@@ -57,7 +57,15 @@
  * binary vectors, by setting negative components to zero, and positive
  * components to one.
  *
+ * The implementation also supports a recent extension to the COALS model
+ * as proposed by Chang et al. (2012).
+ *
  * References
+ *
+ * Chang, Y., Furber, S., & Welbourne, S. (2012). Generating Realistic
+ *     Semantic Codes for Use in Neural Network Models. In Miyake, N.,
+ *     Peebles, D, and Cooper, R. P. (Eds.). Proceedings of the 34th
+ *     Annual Meeting of the Cognitive Science Society (CogSci 2012).
  *
  * Rohde, D. L. T., Gonnerman, L. M., & Plaut, D. C. (2005). An Improved
  *     Model of Semantic Similarity Based on Lexical Co-Occurrence.
@@ -555,9 +563,9 @@ void coals(struct config *cfg)
  *
  * This function assumes the following file format:
  *
- * 1|<word_1>|<frequency>
- * 1|<word_2>|<frequency>
- * .|........|...........
+ * 1|<unigram_1>|<frequency>
+ * 1|<unigram_2>|<frequency>
+ * .|...........|...........
  *
  * where the first integer denotes that the frequency is
  * a unigram count.
@@ -570,7 +578,7 @@ void populate_freq_hash(struct config *cfg, struct freqs **fqs)
                 goto error_out;
 
         /* read all unigrams */
-        char buf[1024];
+        char buf[BUF_SIZE];
         while (fgets(buf, sizeof(buf), fd)) {
                 char *wp = index(buf, '|');
                 char *fp = rindex(buf, '|');
@@ -641,9 +649,9 @@ error_out:
  *
  * This function assumes the following file format:
  *
- * n|<word_1>|<frequency>
- * n|<word_2>|<frequency>
- * .|........|...........
+ * n|<ngram_1>|<frequency>
+ * n|<ngram_2>|<frequency>
+ * .|.........|...........
  *
  * where the first integer denotes that the frequency is
  * a n-gram count for n-grams of size n.
@@ -660,7 +668,7 @@ void populate_cfreq_hashes(struct config *cfg, struct freqs **fqs)
         int word_idx = cfg->w_size;
 
         /* read all n-grams */
-        char buf[1024];
+        char buf[BUF_SIZE];
         while (fgets(buf, sizeof(buf), fd)) {
                 char *wp = index(buf, '|');
                 char *fp = rindex(buf, '|');
@@ -694,7 +702,7 @@ void populate_cfreq_hashes(struct config *cfg, struct freqs **fqs)
                 }
 
                 /* 
-                 * skip if there is no frequency for 
+                 * skip if there is no frequency for
                  * word in focus
                  */
                 struct freqs *f;
@@ -839,7 +847,7 @@ void populate_enf_word_hash(struct config *cfg, struct freqs **fqs,
                 goto error_out;
 
         /* read all words */
-        char buf[1024];
+        char buf[BUF_SIZE];
         while (fgets(buf, sizeof(buf), fd)) {
                 /* copy word */
                 char *word;
@@ -1232,7 +1240,9 @@ void fprint_binary_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
  * References
  *
  * Chang, Y., Furber, S., & Welbourne, S. (2012). Generating Realistic
- *     Semantic Codes for Use in Neural Network Models.
+ *     Semantic Codes for Use in Neural Network Models. In Miyake, N.,
+ *     Peebles, D, and Cooper, R. P. (Eds.). Proceedings of the 34th
+ *     Annual Meeting of the Cognitive Science Society (CogSci 2012).
  */
 
 void fprint_binary_pn_vector(FILE *fd, struct config *cfg, char *w, DMat cvs,
