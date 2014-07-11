@@ -41,7 +41,7 @@ thesis](http://dissertations.ub.rug.nl/faculties/arts/2014/h.brouwer/?pLanguage=
 Usage
 -----
 
-  ./coals
+  $ ./coals
 
   COALS version 0.99-beta
   Copyright (c) 2012-2014 Harm Brouwer <me@hbrouwer.eu>
@@ -51,28 +51,29 @@ Usage
   usage ./coals [options]
 
     constructing COALS vectors:
-      --wsize <num>	set co-occurrence window size to <num>
-      --wtype <type>	use <type> window for co-occurrences (dflt: ramped)
-      --rows <num>	set number of rows of the co-occurrence matrix to <num>
-      --cols <num>	set number of cols of the co-occurrence matrix to <num>
-      --dims <num>	reduce COALS vectors to <num> dimensions (using SVD)
-      --vtype <type>	construct <type> (real/binary[_pn]) vectors (dflt: real)
-      --unigrams <file>	read unigram counts (word frequencies) from <file>
-      --ngrams <file>	read n-gram counts (co-occurrence freqs.) from <file>
-      --output <file>	write COALS vectors to <file>
-      --enforce <file>	enforce inclusion of words in <file>
+      --wsize <num>       set co-occurrence window size to <num>
+      --wtype <type>      use <type> window for co-occurrences (dflt: ramped)
+      --rows <num>        set number of rows of the co-occurrence matrix to <num>
+      --cols <num>        set number of cols of the co-occurrence matrix to <num>
+      --dims <num>        reduce COALS vectors to <num> dimensions (using SVD)
+      --vtype <type>      construct <type> (real/binary[_pn]) vectors (dflt: real)
+      --unigrams <file>   read unigram counts (word frequencies) from <file>
+      --ngrams <file>     read n-gram counts (co-occurrence freqs.) from <file>
+      --output <file>     write COALS vectors to <file>
+      --enforce <file>    enforce inclusion of words in <file>
 
-      --pos_fts <num>	number of positive features (for binary_pn vectors)
-      --neg_fts <num>	number of negative features (for binary_pn vectors)
+      --pos_fts <num>     number of positive features (for binary_pn vectors)
+      --neg_fts <num>     number of negative features (for binary_pn vectors)
 
     extracting similar words:
-      --vectors <file>	compute similarities on basis of vectors in <file>
-      --output <file>	write top-k similar word sets to <file>
-      --topk <num>	extract top-<num> similar words for each word
+      --vectors <file>    compute similarities on basis of vectors in <file>
+      --output <file>     write top-k similar word sets to <file>
+      --topk <num         extract top-<num> similar words for each word
 
     basic information for users:
-      --help		shows this help message
-      --version		shows version
+      --help              shows this help message
+      --version           shows version
+
 
 Dependencies
 ------------
