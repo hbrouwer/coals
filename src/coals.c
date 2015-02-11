@@ -108,7 +108,7 @@ struct config
 struct freqs
 {
         char *word;             /* word string (hash-key) */
-        int freq;               /* word frequency */
+        unsigned int freq;      /* word frequency */
         struct freqs *cfqs;     /* co-occurrence frequencies */
         UT_hash_handle hh;      /* hash handle */
 };
@@ -486,7 +486,6 @@ void coals(struct config *cfg)
          */
         struct enf_words *ewds = NULL;
         if (cfg->enf_wds_fn) {
-
                 fprintf(stderr, "--- populating enforced word hash from: [%s] (...)\n",
                         cfg->enf_wds_fn);
                 populate_enf_word_hash(cfg, &fqs, &ewds);
@@ -593,7 +592,8 @@ void populate_freq_hash(struct config *cfg, struct freqs **fqs)
                 strncpy(word, wp, len);
 
                 /* isolate word frequency */
-                int freq = atoi(++fp);
+                unsigned int freq; // = atoi(++fp);
+                sscanf(++fp, "%u", &freq);
 
                 /* convert word to uppercase */
                 for (int i = 0; i < strlen(word); i++)
@@ -683,7 +683,8 @@ void populate_cfreq_hashes(struct config *cfg, struct freqs **fqs)
                 strncpy(ngram, wp, len);
 
                 /* isolate n-gram frequency */
-                int freq = atoi(++fp);
+                unsigned int freq; //atoi(++fp);
+                sscanf(++fp, "%u", &freq);
 
                 /* convert n-gram to uppercase */
                 for (int i = 0; i < strlen(ngram); i++)
@@ -726,7 +727,7 @@ void populate_cfreq_hashes(struct config *cfg, struct freqs **fqs)
                                 continue;
 
                         /* frequency */
-                        int rfreq = freq;
+                        unsigned int rfreq = freq;
 
                         /* ramp frequency (if required) */
                         if (cfg->w_type == WTYPE_RAMPED) {
@@ -826,7 +827,13 @@ bool is_word(char *word)
 
 int sort_by_freq(struct freqs *a, struct freqs *b)
 {
-        return b->freq - a->freq;
+
+        if (a->freq < b->freq)
+                return 1;
+        else if (a->freq == b->freq)
+                return 0;
+        else
+                return -1;
 }
 
 /*
