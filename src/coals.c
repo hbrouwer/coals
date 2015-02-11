@@ -22,7 +22,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#include "../lib/uthash-1.9.9/src/uthash.h"
+#include "../lib/uthash-1.9.9.1/src/uthash.h"
 #include "../lib/SVDLIBC/svdlib.h"
 
 #define VERSION "0.99-beta"
