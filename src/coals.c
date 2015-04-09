@@ -40,7 +40,7 @@
  * This implements the Correlated Occurrence Analogue to Lexical Semantics
  * (COALS; Rohde, Gonnerman, & Plaut, 2005). COALS represents word meaning
  * by means of high-dimensional vectors derived from word co-occurrence
- * patterns in large corporora. The construction of these vectors starts by
+ * patterns in large corpora. The construction of these vectors starts by
  * compiling a co-occurrence table using a ramped (or alternatively, flat)
  * n-word window. Rohde et al. use a 4-word, ramped window:
  *
