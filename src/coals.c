@@ -1462,7 +1462,7 @@ error_out:
 
 DMat construct_sm(struct config *cfg, struct vectors **vecs)
 {
-        // svdNewDMat(cfg->rows, cfg->rows);
+        // DMat dsm = svdNewDMat(cfg->rows, cfg->rows);
 
         /*
          * 03/03/17: Intializing this matrix with svdNewDMat() from SVDLIBC 
@@ -1508,7 +1508,7 @@ DMat construct_sm(struct config *cfg, struct vectors **vecs)
 
 error_out:
         perror("[construct_sm()]");
-        return;
+        return NULL;
 }
 
 /*
@@ -1548,7 +1548,12 @@ double vector_similarity(double *v1, double v1_mean, double *v2,
                 bsq += pow(v2[i] - v2_mean, 2.0);
         }
 
-        return nom / pow(asq * bsq, 0.5);
+        // return nom / pow(asq * bsq, 0.5);
+        double denom = pow(asq * bsq, 0.5);
+        if (denom > 0.0)
+                return nom / denom;
+        else
+                return 0.0;
 }
 
 /*
