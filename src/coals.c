@@ -1462,7 +1462,35 @@ error_out:
 
 DMat construct_sm(struct config *cfg, struct vectors **vecs)
 {
-        DMat dsm = svdNewDMat(cfg->rows, cfg->rows);
+        // svdNewDMat(cfg->rows, cfg->rows);
+
+        /*
+         * 03/03/17: Intializing this matrix with svdNewDMat() from SVDLIBC 
+         * blows up if the matrix gets too large, for whatever reason ...
+         *
+         * Workaround: Initialize the matrix ourselves.
+         */
+
+        DMat dsm;
+        if(!(dsm = malloc(sizeof(struct dmat))))
+                goto error_out;
+        memset(dsm, 0, sizeof(struct dmat));
+
+        dsm->rows = cfg->rows;
+        dsm->cols = cfg->rows;
+
+        /* allocate rows */
+        dsm->value = malloc(dsm->rows * sizeof(double *));
+        memset(dsm->value, 0, dsm->rows * sizeof(double *));
+        
+        /* allocate columns */
+        for (int i = 0; i < dsm->rows; i++) {
+                if(!(dsm->value[i] = malloc(dsm->cols * sizeof(double))))
+                        goto error_out;
+                memset(dsm->value[i], 0, dsm->cols * sizeof(double));
+        }
+
+        /* end of work around */
 
         int r; struct vectors *rv;
         for (r = 0, rv = *vecs; r < cfg->rows && rv != NULL; r++, rv = rv->hh.next) {
@@ -1477,6 +1505,10 @@ DMat construct_sm(struct config *cfg, struct vectors **vecs)
         }
 
         return dsm;
+
+error_out:
+        perror("[construct_sm()]");
+        return;
 }
 
 /*
