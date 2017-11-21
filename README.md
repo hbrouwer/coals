@@ -3,8 +3,7 @@ COALS
 
 Synopsis
 --------
-[Correlated Occurrence Analogue to Lexical Semantics]
-(http://www.cnbc.cmu.edu/~plaut/papers/pdf/RohdeGonnermanPlautSUB-CogSci.COALS.pdf)
+[Correlated Occurrence Analogue to Lexical Semantics](http://www.cnbc.cmu.edu/~plaut/papers/pdf/RohdeGonnermanPlautSUB-CogSci.COALS.pdf)
 
 Description
 -----------
