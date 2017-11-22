@@ -4,7 +4,7 @@ project(coals)
 
 include(CheckIncludeFile)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99 -Wall -O3 -march=core2")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99 -Wall -O3 -march=native")
 
 ## Change these to the correct locations on your machine.
 link_directories("/Users/harm/git/coals/lib/svdlibc")

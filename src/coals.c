@@ -23,7 +23,7 @@
 #include <stdio.h>
 
 #include "../lib/uthash-2.0.1/src/uthash.h"
-#include "../lib/SVDLIBC/svdlib.h"
+#include "../lib/svdlibc/svdlib.h"
 
 #define VERSION "0.99-beta"
 
